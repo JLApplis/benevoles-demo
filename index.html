@@ -526,9 +526,9 @@
 
 <div class="hero-wrap">
   <div class="hero-inner">
-    <div class="eyebrow">Version de démonstration — données fictives</div>
+    <div class="eyebrow" style="display:inline-block;background:rgba(255,255,255,.18);padding:6px 14px;border-radius:999px;text-transform:none;letter-spacing:.02em;color:#fff">Version DEMO du 18/10/2026 à 10h44</div>
     <h1 class="title">BENEVOLES DEMO</h1>
-    <p class="subtitle">Consultez les missions proposées, inscrivez-vous, et suivez les heures données par les bénévoles. Ce que vous ajoutez ici est visible en direct par tout le monde.</p>
+    <p class="subtitle">Consultez les missions proposées, inscrivez-vous, et suivez les heures données par les bénévoles.</p>
 
     <div class="status-line"><span class="status-dot" id="status-dot"></span><span id="status-text">Connexion à la base de données…</span></div>
 
@@ -538,8 +538,8 @@
 
 <div id="demo-bandeau" style="background:#fff3cd;color:#664d03;border-bottom:2px solid #ffda6a;padding:10px 16px;font:14px/1.4 system-ui,sans-serif;text-align:center">
   <strong>VERSION DE DÉMONSTRATION</strong> — données fictives, enregistrées uniquement dans ce navigateur. Rien n'est envoyé sur Internet.<br>
-  Pour tester : cliquez sur « Connexion gestionnaire / Directeur » puis <strong>directeur@demo.example</strong> ou <strong>gestionnaire@demo.example</strong>, code <strong>demo1234</strong>.
-  <button id="demo-reset" type="button" style="margin-left:8px;padding:4px 10px;cursor:pointer">Remettre les données de démo</button>
+  Pour essayer en tant que bénévole : cliquez sur « Je m'identifie » et saisissez <strong>Camille</strong>, <strong>Bernard</strong>, <strong>camille.bernard@example.org</strong>. Accès gestion : « Connexion gestionnaire / Directeur », <strong>directeur@demo.example</strong>, code <strong>demo1234</strong>.<br>
+  <button id="demo-reset" type="button" style="margin-top:6px;padding:4px 10px;cursor:pointer">Remettre les données de démo</button>
 </div>
 <div class="shell">
   <div class="stats" id="stats"></div>
@@ -6555,7 +6555,7 @@
   onAuthStateChanged(auth, function(user){
     authReady = !!user;
     document.getElementById("status-dot").classList.toggle("ok", authReady);
-    document.getElementById("status-text").textContent = authReady ? "Connecté — les données sont partagées en direct." : "Connexion à la base de données…";
+    document.getElementById("status-text").textContent = authReady ? "Démonstration — données fictives, enregistrées uniquement dans ce navigateur." : "Connexion à la base de données…";
 
     if(authReady){ attachPublicCollections(); }
 
