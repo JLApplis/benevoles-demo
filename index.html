@@ -2,7 +2,8 @@
 <!--
   BENEVOLES DEMO — application de gestion des bénévoles et des missions
   de la Association Démo (Lyon).
-  Version 1.4 — 01/11/2026 (correctifs C1 à C12), complétée les 10 et 11/11/2026 (D1 à D7, C13)
+  Version 1.5 — 14/11/2026 : version 1.4 (C1 à C12 du 01/11/2026, D1 à D7 et C13 des 10 et 11/11/2026)
+  + correctifs de l'audit du 14/11/2026 (C14 à C21).
   Copyright (C) 2026  JLApplis (contact@jlapplis.fr)
 
   Fichier unique (HTML + JavaScript) utilisant Firebase (Authentication
@@ -99,6 +100,31 @@
        depuis D3 retirés, commentaires périmés mis à jour, message de fin
        d'import complété (statuts et groupes), « M? » au lieu de
        « Mundefined » dans l'Historique de D6 si la mission n'a pas de numéro.
+
+  Version 1.5 — correctifs du 14/11/2026 (audit) :
+   C14 Identifiants (fiches, missions, inscriptions, candidatures…) échappés
+       avant d'être insérés dans la page : un identifiant contenant du code
+       HTML (créé exprès par un visiteur) ne peut plus s'exécuter chez le
+       Directeur.
+   C15 « Inscrire » / « Ajouter l'inscrit » lit la liste placée à côté du
+       bouton : en vue cartes, la fenêtre de la mission prenait la liste de
+       la carte, et pouvait inscrire la mauvaise personne.
+   C16 Un secteur, statut ou groupe retiré des Paramètres n'est plus remplacé
+       en silence à l'enregistrement (mission, fiche bénévole, compte) : la
+       valeur actuelle est conservée (affichée « retiré des Paramètres »).
+   C17 Export : candidatures ajoutées. Import : dates de création restaurées
+       (« Mission créée le », « Fiche créée le »), candidatures absentes
+       recréées.
+   C18 Mission à cheval sur minuit (ex. 22:00–02:00) : elle n'est plus jugée
+       passée avant d'avoir commencé ; la fin compte pour le lendemain.
+   C19 Tuile « Missions à vérifier » : repasse en vue tableau (le filtre ne
+       s'appliquait pas en vue cartes).
+   C20 Ajout manuel d'un bénévole dont l'email a déjà une fiche : refusé avec
+       un message, au lieu d'écraser la fiche existante.
+   C21 Divers : « M? » au lieu de « Mundefined » dans les fenêtres mail ;
+       texte des places d'une mission à groupe corrigé ; une mission sans
+       heure ou sans secteur ne bloque plus l'affichage ; page Droits
+       complétée (D6) ; commentaires périmés mis à jour.
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -596,7 +622,7 @@
 
 <div class="hero-wrap">
   <div class="hero-inner">
-    <div class="eyebrow" style="display:inline-block;background:rgba(255,255,255,.18);padding:6px 14px;border-radius:999px;text-transform:none;letter-spacing:.02em;color:#fff">Version DEMO du 11/11/2026 à 14h12</div>
+    <div class="eyebrow" style="display:inline-block;background:rgba(255,255,255,.18);padding:6px 14px;border-radius:999px;text-transform:none;letter-spacing:.02em;color:#fff">Version DEMO du 14/11/2026 à 15h14</div>
     <h1 class="title">BENEVOLES &amp; MISSIONS DEMO</h1>
     <p class="subtitle">Consultez les missions proposées, inscrivez-vous, et suivez les heures données par les bénévoles.</p>
 
@@ -1123,9 +1149,9 @@
   var monHistoriqueOpen = false;
 
   // Fenêtre "Alerte nouvelle mission" (point A5, demande de Jluc,
-  // 23/09/2026) : s'ouvre automatiquement juste après la CRÉATION d'une
-  // nouvelle mission (jamais après une simple modification), pour proposer
-  // de copier la liste exhaustive des emails de TOUS les bénévoles (pas
+  // 23/09/2026). Depuis D3 (10/11/2026), elle ne s'ouvre plus toute seule à
+  // la création : on y accède par "Envoyer un mail" → "Tous les bénévoles"
+  // (mission sans groupe). Elle propose de copier la liste exhaustive des emails de TOUS les bénévoles (pas
   // seulement les actifs, pas de filtre par groupe — décision explicite de
   // Jluc : "TOUS les bénévoles inscrits doivent recevoir l'alerte"), sauf
   // depuis le 30/09/2026 (A17) un bénévole ayant lui-même coupé les mails
@@ -1174,6 +1200,12 @@
   var gestionnaireEditId = null;
   var gestionnaireEditError = "";
 
+  // C16 (14/11/2026) : valeurs déjà enregistrées mais absentes des cases à
+  // cocher (retirées des Paramètres, ou groupes de l'Équipe non proposés
+  // sur une fiche) : conservées à l'enregistrement au lieu d'être effacées.
+  function conserverValeursNonProposees(cochees, actuelles, proposees){
+    return cochees.concat((actuelles||[]).filter(function(v){ return proposees.indexOf(v) < 0 && cochees.indexOf(v) < 0; }));
+  }
   function escapeHtml(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
@@ -1206,6 +1238,7 @@
   }
 
   function dureeHeures(mission){
+    if(!mission || !mission.debut || !mission.fin) return 0; // C21 : donnée incomplète
     var a = mission.debut.split(":").map(Number);
     var b = mission.fin.split(":").map(Number);
     var d = (b[0]+b[1]/60) - (a[0]+a[1]/60);
@@ -1240,6 +1273,9 @@
     if(!mission || !mission.date || !mission.fin) return false;
     var finMs = new Date(mission.date + "T" + mission.fin + ":00").getTime();
     if(isNaN(finMs)) return false;
+    // C18 (14/11/2026) : mission à cheval sur minuit (fin avant le début,
+    // ex. 22:00–02:00) — la fin est le lendemain, comme pour dureeHeures.
+    if(mission.debut && mission.fin < mission.debut) finMs += 24*3600*1000;
     return finMs < Date.now();
   }
 
@@ -1382,6 +1418,7 @@
   }
 
   function hueForPole(pole){
+    pole = String(pole || ""); // C21 : mission sans secteur
     if(POLE_HUES[pole] != null) return POLE_HUES[pole];
     var hash = 0;
     for(var i=0; i<pole.length; i++){ hash = (hash * 31 + pole.charCodeAt(i)) % 360; }
@@ -1533,7 +1570,7 @@
     if(!mailtoGroupesMission(m, "nouvelle")) return m.groupes.map(groupeTag).join("");
     var titreLien = "Écrire à " + m.groupes.join(" + ");
     return m.groupes.map(function(g){
-      return '<button type="button" class="tag" data-action="choisir-mail-mission" data-id="'+m.id+'" title="'+escapeHtml(titreLien)+'" style="background:var(--surface-2);border:none;cursor:pointer;"><span class="dot" style="background:#555;"></span>🔒 '+escapeHtml(g)+'</button>';
+      return '<button type="button" class="tag" data-action="choisir-mail-mission" data-id="'+escapeHtml(m.id)+'" title="'+escapeHtml(titreLien)+'" style="background:var(--surface-2);border:none;cursor:pointer;"><span class="dot" style="background:#555;"></span>🔒 '+escapeHtml(g)+'</button>';
     }).join("");
   }
 
@@ -1578,7 +1615,7 @@
     // D3 (10/11/2026, demande du Directeur) : un seul bouton, sur toute
     // mission (passée comprise), qui ouvre la fenêtre de choix des
     // destinataires — voir choixMailGroupeModaleHtml.
-    return '<button type="button" class="btn btn-badge mission-mail btn-sm" data-action="choisir-mail-mission" data-id="'+m.id+'">✉️ Envoyer un mail</button>';
+    return '<button type="button" class="btn btn-badge mission-mail btn-sm" data-action="choisir-mail-mission" data-id="'+escapeHtml(m.id)+'">✉️ Envoyer un mail</button>';
   }
 
   function selectFiltreGroupeHtml(id, valeurActuelle){
@@ -2166,9 +2203,9 @@
     var pts = Math.round((pointsMap&&pointsMap[b.id]||0)*10)/10;
     var actions = "";
     if(role !== "public"){
-      actions += '<button class="btn btn-ghost btn-sm" data-action="open-benevole-modale" data-id="'+b.id+'">Modifier</button>';
-      actions += '<button class="btn btn-ghost btn-sm" data-action="toggle-actif" data-id="'+b.id+'">'+(b.actif ? "Marquer inactif" : "Marquer actif")+'</button>';
-      actions += '<button class="btn-danger-ghost" data-action="delete-benevole" data-id="'+b.id+'" title="Supprimer">✕</button>';
+      actions += '<button class="btn btn-ghost btn-sm" data-action="open-benevole-modale" data-id="'+escapeHtml(b.id)+'">Modifier</button>';
+      actions += '<button class="btn btn-ghost btn-sm" data-action="toggle-actif" data-id="'+escapeHtml(b.id)+'">'+(b.actif ? "Marquer inactif" : "Marquer actif")+'</button>';
+      actions += '<button class="btn-danger-ghost" data-action="delete-benevole" data-id="'+escapeHtml(b.id)+'" title="Supprimer">✕</button>';
     }
 
     return '<div class="card">'
@@ -2271,8 +2308,8 @@
         var tags = (b.poles||[]).map(poleTag).join("");
         var groupeTags = (b.groupes||[]).map(groupeTag).join("");
         var coche = !!benevolesSelection[b.id];
-        return '<tr class="mission-row" data-action="open-benevole-modale" data-id="'+b.id+'">'
-          + '<td class="col-select"><input type="checkbox" data-action="toggle-select-benevole" data-id="'+b.id+'" '+(coche?"checked":"")+'></td>'
+        return '<tr class="mission-row" data-action="open-benevole-modale" data-id="'+escapeHtml(b.id)+'">'
+          + '<td class="col-select"><input type="checkbox" data-action="toggle-select-benevole" data-id="'+escapeHtml(b.id)+'" '+(coche?"checked":"")+'></td>'
           + '<td>'+escapeHtml(b.nom)
           + (b.actif ? '' : ' <span class="badge-inactif">Inactif</span>')
           // A3 (22/09/2026) : repère visuel direct dans le tableau, sur le
@@ -2455,18 +2492,18 @@
     // "Groupe" (le mot "groupe" seul suffit, le contexte — case à cocher
     // par groupe — est clair une fois le menu ouvert).
     return '<details class="select-dropdown"'+(ouvert?" open":"")+'>'
-      + '<summary data-action="toggle-menu-groupes-candidature" data-id="'+c.id+'">Groupe'+(choisis.length ? ' ('+choisis.length+')' : '')+' <span class="chevron">▾</span></summary>'
+      + '<summary data-action="toggle-menu-groupes-candidature" data-id="'+escapeHtml(c.id)+'">Groupe'+(choisis.length ? ' ('+choisis.length+')' : '')+' <span class="chevron">▾</span></summary>'
       + '<div class="select-dropdown-panel"'+panneauStyle+'>'
       + '<div class="checkbox-group">'
       + groupesPourFichesBenevoles().map(function(g){
           var coche = choisis.indexOf(g) >= 0;
-          return '<label class="checkbox-chip"><input type="checkbox" data-action="toggle-groupe-candidature" data-id="'+c.id+'" data-groupe="'+escapeHtml(g)+'" '+(coche?"checked":"")+'> '+escapeHtml(g)+'</label>';
+          return '<label class="checkbox-chip"><input type="checkbox" data-action="toggle-groupe-candidature" data-id="'+escapeHtml(c.id)+'" data-groupe="'+escapeHtml(g)+'" '+(coche?"checked":"")+'> '+escapeHtml(g)+'</label>';
         }).join("")
       + '</div>'
       + '<div class="form-actions" style="margin-top:10px;">'
-      + '<button type="button" class="btn btn-ghost btn-sm" data-action="tout-cocher-groupes-candidature" data-id="'+c.id+'">Tout cocher</button>'
-      + '<button type="button" class="btn btn-ghost btn-sm" data-action="tout-decocher-groupes-candidature" data-id="'+c.id+'">Tout décocher</button>'
-      + '<button type="button" class="btn btn-primary btn-sm" data-action="valider-menu-groupes-candidature" data-id="'+c.id+'">Valider</button>'
+      + '<button type="button" class="btn btn-ghost btn-sm" data-action="tout-cocher-groupes-candidature" data-id="'+escapeHtml(c.id)+'">Tout cocher</button>'
+      + '<button type="button" class="btn btn-ghost btn-sm" data-action="tout-decocher-groupes-candidature" data-id="'+escapeHtml(c.id)+'">Tout décocher</button>'
+      + '<button type="button" class="btn btn-primary btn-sm" data-action="valider-menu-groupes-candidature" data-id="'+escapeHtml(c.id)+'">Valider</button>'
       + '</div>'
       + '</div>'
       + '</details>';
@@ -2521,8 +2558,8 @@
         + '<div class="card-footrow" style="flex-wrap:wrap;gap:8px;">'
         + '<span>'+menuGroupesCandidatureHtml(c, true)+'</span>'
         + '<span style="display:flex;gap:6px;flex-wrap:wrap;">'
-        + '<button class="btn btn-danger btn-sm" data-action="refuser-candidature" data-id="'+c.id+'" '+(authReady?"":"disabled")+'>Refuser</button>'
-        + '<button class="btn btn-primary btn-sm" data-action="valider-candidature" data-id="'+c.id+'" '+(authReady?"":"disabled")+'>Valider</button>'
+        + '<button class="btn btn-danger btn-sm" data-action="refuser-candidature" data-id="'+escapeHtml(c.id)+'" '+(authReady?"":"disabled")+'>Refuser</button>'
+        + '<button class="btn btn-primary btn-sm" data-action="valider-candidature" data-id="'+escapeHtml(c.id)+'" '+(authReady?"":"disabled")+'>Valider</button>'
         + '</span></div>'
         + '</div>';
     }).join("");
@@ -2565,8 +2602,8 @@
           // déjà utilisé ailleurs dans l'appli pour ce cas.
           + '<td style="white-space:nowrap;"><div style="display:flex;gap:6px;align-items:flex-start;">'
           + menuGroupesCandidatureHtml(c, false)
-          + '<button class="btn btn-danger btn-sm" data-action="refuser-candidature" data-id="'+c.id+'" '+(authReady?"":"disabled")+'>Refuser</button>'
-          + '<button class="btn btn-primary btn-sm" data-action="valider-candidature" data-id="'+c.id+'" '+(authReady?"":"disabled")+'>Valider</button>'
+          + '<button class="btn btn-danger btn-sm" data-action="refuser-candidature" data-id="'+escapeHtml(c.id)+'" '+(authReady?"":"disabled")+'>Refuser</button>'
+          + '<button class="btn btn-primary btn-sm" data-action="valider-candidature" data-id="'+escapeHtml(c.id)+'" '+(authReady?"":"disabled")+'>Valider</button>'
           + '</div></td>'
           + '</tr>';
       }).join("");
@@ -2788,13 +2825,13 @@
         // "Réalisée" (pas "réalisé", correctif du 26/09/2026 demandé par
         // Jluc) : le mot qualifie la mission (celle-ci a bien eu lieu pour
         // ce bénévole), pas le bénévole lui-même.
-        var actionsHtml = '<label class="realise-toggle"><input type="checkbox" data-action="toggle-realise" data-id="'+a.id+'" '+(a.statut==="realise"?"checked":"")+'> Réalisée</label>'
-          + (a.demandeDesinscription ? '<button type="button" class="link-btn" data-action="traiter-desinscription" data-id="'+a.id+'" title="Ne pas retirer, juste effacer le drapeau">Marquer traité</button>' : '')
+        var actionsHtml = '<label class="realise-toggle"><input type="checkbox" data-action="toggle-realise" data-id="'+escapeHtml(a.id)+'" '+(a.statut==="realise"?"checked":"")+'> Réalisée</label>'
+          + (a.demandeDesinscription ? '<button type="button" class="link-btn" data-action="traiter-desinscription" data-id="'+escapeHtml(a.id)+'" title="Ne pas retirer, juste effacer le drapeau">Marquer traité</button>' : '')
           // Bouton "Supprimer" en toutes lettres (demande de Jluc, 26/09/2026
           // : "crée un btn pour supprimer"), à la place de la simple croix
           // "✕" — même style que les autres boutons de cette modale.
-          + '<button type="button" class="btn btn-badge mission-supprimer btn-sm" data-action="retirer" data-id="'+a.id+'" title="Retirer l\'inscription">Supprimer</button>';
-        return '<div class="inscrit-row"><div class="inscrit-name inscrit-name-clic" data-action="open-benevole-modale" data-id="'+b.id+'" title="Voir la fiche de '+escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+'"><span class="avatar">'+initiales(b)+'</span>'
+          + '<button type="button" class="btn btn-badge mission-supprimer btn-sm" data-action="retirer" data-id="'+escapeHtml(a.id)+'" title="Retirer l\'inscription">Supprimer</button>';
+        return '<div class="inscrit-row"><div class="inscrit-name inscrit-name-clic" data-action="open-benevole-modale" data-id="'+escapeHtml(b.id)+'" title="Voir la fiche de '+escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+'"><span class="avatar">'+initiales(b)+'</span>'
           + escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+badgeIndispoHtml+'</div>'
           + '<div class="inscrit-actions">'+actionsHtml+'</div></div>';
       }).join("");
@@ -2836,9 +2873,9 @@
         });
         selectHtml = disponibles.length
           ? (missionPassee ? '<div class="form-hint" style="margin:8px 0 4px;">Mission passée : vous pouvez encore ajouter une personne qui y a participé, puis cocher « Réalisée ».</div>' : '')
-            + '<div class="inscrire-row"><select id="sel-'+m.id+'">'
-            + disponibles.map(function(b){ return '<option value="'+b.id+'">'+escapeHtml(b.nom)+' '+escapeHtml(b.prenom)+'</option>'; }).join("")
-            + '</select><button type="button" class="btn btn-sm" data-action="inscrire" data-mission="'+m.id+'" '+(authReady?"":"disabled")+'>'+(missionPassee ? "Ajouter l'inscrit" : "Inscrire")+'</button></div>'
+            + '<div class="inscrire-row"><select id="sel-'+escapeHtml(m.id)+'">'
+            + disponibles.map(function(b){ return '<option value="'+escapeHtml(b.id)+'">'+escapeHtml(b.nom)+' '+escapeHtml(b.prenom)+'</option>'; }).join("")
+            + '</select><button type="button" class="btn btn-sm" data-action="inscrire" data-mission="'+escapeHtml(m.id)+'" '+(authReady?"":"disabled")+'>'+(missionPassee ? "Ajouter l'inscrit" : "Inscrire")+'</button></div>'
           : '<div class="benevole-contact">Tous les bénévoles actifs sont déjà inscrits.</div>';
       }
     } else {
@@ -2856,7 +2893,7 @@
         // pour un bénévole devenu inactif entre-temps.
         selectHtml = moiAffectation.demandeDesinscription
           ? '<div class="benevole-contact">Votre demande de désinscription a bien été transmise, un·e responsable va la traiter.</div>'
-          : '<div class="inscrire-row"><button type="button" class="btn btn-ghost btn-sm" data-action="demander-desinscription" data-id="'+moiAffectation.id+'" '+(authReady?"":"disabled")+'>Je ne suis plus disponible</button></div>';
+          : '<div class="inscrire-row"><button type="button" class="btn btn-ghost btn-sm" data-action="demander-desinscription" data-id="'+escapeHtml(moiAffectation.id)+'" '+(authReady?"":"disabled")+'>Je ne suis plus disponible</button></div>';
       } else if(!moi.actif){
         // Correctif (23/09/2026, signalé par Jluc) : côté Gestionnaire, la
         // liste déroulante "Inscrire" exclut déjà les bénévoles inactifs
@@ -2872,7 +2909,7 @@
         // (voir missionsNonPasseesPublic) — point A1, 22/09/2026.
         selectHtml = '';
       } else {
-        selectHtml = '<div class="inscrire-row"><button type="button" class="btn btn-sm btn-primary" data-action="inscrire-moi" data-mission="'+m.id+'" '+(authReady?"":"disabled")+'>M\'inscrire ('+escapeHtml(moi.prenom)+')</button></div>';
+        selectHtml = '<div class="inscrire-row"><button type="button" class="btn btn-sm btn-primary" data-action="inscrire-moi" data-mission="'+escapeHtml(m.id)+'" '+(authReady?"":"disabled")+'>M\'inscrire ('+escapeHtml(moi.prenom)+')</button></div>';
       }
     }
 
@@ -2928,7 +2965,7 @@
       // A5 : bouton "Masquer" pour un bénévole identifié, sauf sur une mission
       // où il est déjà inscrit (voir renderMissions).
       + (role === "public" && moiBenevoleId && !moiEstInscrit
-          ? '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="btn btn-ghost btn-sm" data-action="masquer-mission" data-id="'+m.id+'" title="Ne plus afficher cette mission">Masquer</button></div>'
+          ? '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="btn btn-ghost btn-sm" data-action="masquer-mission" data-id="'+escapeHtml(m.id)+'" title="Ne plus afficher cette mission">Masquer</button></div>'
           : '')
       + (role !== "public" ? '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
           // Correctif (23/09/2026) : le bouton disait "Modifier" pour
@@ -2942,9 +2979,9 @@
           // lecture seule pour un Gestionnaire — voir missionFormModalHtml
           // (lectureSeule). Le libellé du bouton reflète ce qui va se
           // passer au clic.
-          + '<button class="btn btn-ghost btn-sm" data-action="edit-mission" data-id="'+m.id+'">'+(role === "directeur" ? "Modifier" : "Voir")+'</button>'
+          + '<button class="btn btn-ghost btn-sm" data-action="edit-mission" data-id="'+escapeHtml(m.id)+'">'+(role === "directeur" ? "Modifier" : "Voir")+'</button>'
           + boutonEnvoyerMailMissionHtml(m)
-          + (role === "directeur" ? '<button class="btn-danger-ghost" data-action="delete-mission" data-id="'+m.id+'">Supprimer la mission</button>' : '')
+          + (role === "directeur" ? '<button class="btn-danger-ghost" data-action="delete-mission" data-id="'+escapeHtml(m.id)+'">Supprimer la mission</button>' : '')
           + '</div>' : '')
       + '</div>';
   }
@@ -3120,8 +3157,8 @@
         // sa propre action et n'ouvre pas la modale (elle est retrouvée en
         // priorité par la délégation de clic, voir data-action plus haut).
         var coloreStatut = STATUT_COULEUR[statutMission(m)] || "accent";
-        return '<tr class="mission-row statut-'+coloreStatut+'" data-action="edit-mission" data-id="'+m.id+'">'
-          + '<td class="col-select"><input type="checkbox" data-action="toggle-select-mission" data-id="'+m.id+'" '+(coche?"checked":"")+'></td>'
+        return '<tr class="mission-row statut-'+coloreStatut+'" data-action="edit-mission" data-id="'+escapeHtml(m.id)+'">'
+          + '<td class="col-select"><input type="checkbox" data-action="toggle-select-mission" data-id="'+escapeHtml(m.id)+'" '+(coche?"checked":"")+'></td>'
           + '<td><strong>'+fmtDateCourt(m.date)+'</strong>'
           + '<div class="mission-date-detail">'+fmtDate(m.date)+' · '+m.debut+'–'+m.fin+'</div>'
           // A10 (30/09/2026, demande du Directeur de l’association) : Prénom/Nom du
@@ -3379,10 +3416,14 @@
       + (value!=null && value!=="" ? ' value="'+escapeHtml(String(value))+'"' : '') + '></div>';
   }
   function missionSelectChampHtml(label,name,options,selected,couleur,desactive){
+    // C16 (14/11/2026) : valeur actuelle retirée des Paramètres → gardée en
+    // tête de liste (sinon le premier choix s'affichait et s'enregistrait).
+    var valeurRetiree = selected && options.indexOf(selected) < 0 ? selected : null;
+    if(valeurRetiree) options = [valeurRetiree].concat(options);
     var classeCol = couleur ? ' champ-colore' : '';
     var styleCol = couleur ? ' style="--fc:'+couleur.fc+';--fc-soft:'+couleur.fcSoft+';"' : '';
     return '<div class="field'+classeCol+'"'+styleCol+'><label for="f-'+name+'">'+label+'</label><select id="f-'+name+'" name="'+name+'"'+(desactive?" disabled":"")+'>'
-      + options.map(function(o){ return '<option value="'+escapeHtml(o)+'"'+(selected===o?' selected':'')+'>'+escapeHtml(o)+'</option>'; }).join("")
+      + options.map(function(o){ return '<option value="'+escapeHtml(o)+'"'+(selected===o?' selected':'')+'>'+escapeHtml(o)+(o===valeurRetiree?' (retiré des Paramètres)':'')+'</option>'; }).join("")
       + '</select></div>';
   }
   // Couleur fixe (accent/warm/success/danger, mêmes teintes que le reste du
@@ -3592,7 +3633,7 @@
       + '<div class="field"><label for="f-duree-affichage">Durée</label><input id="f-duree-affichage" type="text" readonly value="'+calculDureeAffichage(source?source.debut:"", source?source.fin:"")+'"></div>'
       + '</div>'
       + '<div class="field-row">'
-      + missionChampHtml("Places proposées"+(groupesInitiaux.length ? ' <span class="form-hint">(facultatif — mission réservée à un Groupe ; laissé vide, 1 place sera enregistrée)</span>' : ""),"placesTotal",groupesInitiaux.length===0,"number",source?source.placesTotal:"",null,lectureSeule)
+      + missionChampHtml("Places proposées"+(groupesInitiaux.length ? ' <span class="form-hint">(facultatif — mission réservée à un Groupe ; laissé vide, le nombre de membres actifs du ou des groupes sera enregistré)</span>' : ""),"placesTotal",groupesInitiaux.length===0,"number",source?source.placesTotal:"",null,lectureSeule)
       + '</div>'
       + '<div class="field"><label for="f-description">Description</label><textarea id="f-description" name="description" rows="2" '+(lectureSeule?"disabled":"")+'>'+escapeHtml(source?source.description:"")+'</textarea></div>'
       // Commentaires : champ demandé par Jluc pour le suivi interne (jamais
@@ -3607,7 +3648,7 @@
       + '<div class="form-actions">'
       + (champsAVerifierLectureSeule ? '' : '<button type="submit" class="btn btn-badge mission-primary" '+(authReady?"":"disabled")+'>💾 '+(missionEdit?"Enregistrer les modifications":"Créer la mission")+'</button>')
       + '<button type="button" class="btn btn-badge mission-neutre btn-sm" data-action="cancel-mission">'+(lectureSeule||missionModifOk?"Fermer":"Annuler")+'</button>'
-      + (missionEdit ? '<button type="button" class="btn btn-badge mission-dupliquer btn-sm" data-action="dupliquer-mission" data-id="'+missionEdit.id+'">📋 Dupliquer</button>' : '')
+      + (missionEdit ? '<button type="button" class="btn btn-badge mission-dupliquer btn-sm" data-action="dupliquer-mission" data-id="'+escapeHtml(missionEdit.id)+'">📋 Dupliquer</button>' : '')
       // Bouton "Envoyer un mail" (second complément A6, 23/09/2026) : repris
       // ici aussi, directement dans la modale de modification — Jluc l'a
       // cherché à cet endroit en testant (déjà présent dans la vue cartes et
@@ -3615,8 +3656,8 @@
       // ajouté là où il regarde en premier. Depuis D3, boutonEnvoyerMailMissionHtml
       // renvoie le bouton pour toute mission (passée comprise), sauf en public.
       + (missionEdit ? boutonEnvoyerMailMissionHtml(missionEdit) : '')
-      + (missionEdit && role === "directeur" ? '<button type="button" class="btn btn-badge mission-supprimer btn-sm" data-action="delete-mission" data-id="'+missionEdit.id+'">Supprimer la mission</button>' : '')
-      + (missionEdit ? '<button type="button" class="btn btn-badge badge-imprimer btn-sm" data-action="imprimer-fiche-mission" data-id="'+missionEdit.id+'">Imprimer la fiche</button>' : '')
+      + (missionEdit && role === "directeur" ? '<button type="button" class="btn btn-badge mission-supprimer btn-sm" data-action="delete-mission" data-id="'+escapeHtml(missionEdit.id)+'">Supprimer la mission</button>' : '')
+      + (missionEdit ? '<button type="button" class="btn btn-badge badge-imprimer btn-sm" data-action="imprimer-fiche-mission" data-id="'+escapeHtml(missionEdit.id)+'">Imprimer la fiche</button>' : '')
       + (authReady ? '' : '<span class="form-hint">Connexion en cours…</span>')
       + '</div>'
       // Qui est déjà inscrit, et inscrire quelqu'un d'autre : seulement pour
@@ -3661,7 +3702,7 @@
       // "Marquer traité" pour lever l'alerte sans rien supprimer.
       + (b.demandeSuppression ? '<div class="mission-a-pointer">⚠ Ce bénévole a demandé la suppression de sa fiche.'
           + (b.demandeSuppressionCommentaire ? ' Motif indiqué : « '+escapeHtml(b.demandeSuppressionCommentaire)+' ».' : ' Aucun motif indiqué.')
-          + ' <button type="button" class="link-btn" data-action="traiter-demande-suppression" data-id="'+b.id+'">Marquer traité (ne pas supprimer)</button></div>' : '');
+          + ' <button type="button" class="link-btn" data-action="traiter-demande-suppression" data-id="'+escapeHtml(b.id)+'">Marquer traité (ne pas supprimer)</button></div>' : '');
   }
 
   function benevoleModaleHtml(){
@@ -3688,15 +3729,15 @@
       + (benevoleModaleError ? '<div class="error-text" style="margin-bottom:8px;">'+escapeHtml(benevoleModaleError)+'</div>' : '')
       + '<div class="form-actions"><button type="submit" class="btn btn-primary" '+(authReady?"":"disabled")+'>💾 Enregistrer les modifications</button>'
       + '<button type="button" class="btn btn-ghost" data-action="cancel-benevole-modale">Annuler</button>'
-      + '<button type="button" class="btn btn-ghost" id="modal-benevole-toggle-actif" data-action="toggle-actif" data-id="'+b.id+'">'+(b.actif ? "Marquer inactif" : "Marquer actif")+'</button>'
-      + '<button type="button" class="btn-danger-ghost" data-action="delete-benevole" data-id="'+b.id+'">Supprimer la fiche</button>'
-      + '<button type="button" class="btn btn-badge badge-imprimer btn-sm" data-action="imprimer-fiche-benevole" data-id="'+b.id+'">Imprimer la fiche</button>'
+      + '<button type="button" class="btn btn-ghost" id="modal-benevole-toggle-actif" data-action="toggle-actif" data-id="'+escapeHtml(b.id)+'">'+(b.actif ? "Marquer inactif" : "Marquer actif")+'</button>'
+      + '<button type="button" class="btn-danger-ghost" data-action="delete-benevole" data-id="'+escapeHtml(b.id)+'">Supprimer la fiche</button>'
+      + '<button type="button" class="btn btn-badge badge-imprimer btn-sm" data-action="imprimer-fiche-benevole" data-id="'+escapeHtml(b.id)+'">Imprimer la fiche</button>'
       // Lien direct vers l'onglet Historique, recherche déjà remplie avec le
       // nom de ce bénévole (demande de Jluc, 21/09/2026) : c'est là
       // qu'apparaissent, entre autres, ses éventuelles demandes de
       // désinscription passées — utile pour juger de sa fiabilité dans la
       // durée, même après qu'une inscription a été retirée.
-      + '<button type="button" class="btn btn-ghost btn-sm" data-action="voir-historique-benevole" data-id="'+b.id+'">Voir dans l\'historique</button>'
+      + '<button type="button" class="btn btn-ghost btn-sm" data-action="voir-historique-benevole" data-id="'+escapeHtml(b.id)+'">Voir dans l\'historique</button>'
       + (authReady ? '' : '<span class="form-hint">Connexion en cours…</span>')
       + '</div>'
       + (b.dateCreation ? '<div class="benevole-contact">Fiche créée le '+fmtDateTime(b.dateCreation)+'</div>' : '')
@@ -3747,9 +3788,9 @@
       + contenuHtml + '</div></div>';
   }
 
-  // Fenêtre "Alerte nouvelle mission" (A5, 23/09/2026, rendue accessible
-  // n'importe quand le 23/09/2026 via le bouton "Envoyer un mail" — voir
-  // boutonEnvoyerMailMissionHtml et l'action "alerter-benevoles-mission") :
+  // Fenêtre "Alerte nouvelle mission" (A5, 23/09/2026 ; depuis D3, ouverte
+  // par "Envoyer un mail" → "Tous les bénévoles", voir
+  // choixMailGroupeModaleHtml et l'action "envoyer-mail-groupe-mission") :
   // voir la variable alerteMissionOuverte pour le contexte. Le texte ne dit
   // plus "créée" (vrai seulement juste après la création) puisque cette
   // fenêtre s'ouvre maintenant aussi bien plus tard, sur une mission
@@ -3760,7 +3801,7 @@
     if(!alerteMissionOuverte) return "";
     var emails = emailsTousLesBenevoles();
     var liste = emails.join(", ");
-    var contenuHtml = '<div class="form-hint" style="margin-bottom:12px;">Mission « M'+escapeHtml(String(alerteMissionOuverte.numero))+' — '+escapeHtml(alerteMissionOuverte.titre)+' ». Pour prévenir tous les bénévoles ('+emails.length+'), copiez la liste ci-dessous et collez-la dans votre outil d\'envoi en nombre, dans le champ <strong>CCI</strong> (copie conforme invisible) de votre message, jamais dans « À » ni dans « CC ». Aucun email n\'est envoyé automatiquement par l\'application.</div>'
+    var contenuHtml = '<div class="form-hint" style="margin-bottom:12px;">Mission « M'+escapeHtml(String(alerteMissionOuverte.numero||"?"))+' — '+escapeHtml(alerteMissionOuverte.titre)+' ». Pour prévenir tous les bénévoles ('+emails.length+'), copiez la liste ci-dessous et collez-la dans votre outil d\'envoi en nombre, dans le champ <strong>CCI</strong> (copie conforme invisible) de votre message, jamais dans « À » ni dans « CC ». Aucun email n\'est envoyé automatiquement par l\'application.</div>'
       + '<textarea readonly rows="6" style="width:100%;resize:vertical;" onclick="this.select()" id="alerte-mission-textarea">'+escapeHtml(liste)+'</textarea>'
       + '<div class="form-actions" style="margin-top:14px;align-items:center;gap:10px;">'
       + '<button type="button" class="btn btn-primary" data-action="copier-liste-emails-mission">📋 Copier la liste</button>'
@@ -3809,13 +3850,13 @@
     if(!choixMailGroupeMission) return "";
     var m = missionById(choixMailGroupeMission.id);
     if(!m) return "";
-    var reference = 'M'+(m.numero||'')+' — '+escapeHtml(m.titre||'');
+    var reference = 'M'+(m.numero||'?')+' — '+escapeHtml(m.titre||'');
     var passee = missionEstPassee(m);
     var aGroupes = !!(m.groupes && m.groupes.length);
     var nbTous = aGroupes ? emailsActifsPourGroupes(m.groupes, true).length : emailsTousLesBenevoles().length;
     var nbInscrits = emailsInscritsMission(m).length;
     function bouton(cible, type, libelle, principal, nb){
-      return '<button type="button" class="btn'+(principal?' btn-primary':'')+'" data-action="envoyer-mail-groupe-mission" data-id="'+m.id+'" data-cible="'+cible+'" data-type="'+type+'"'+(nb?'':' disabled')+'>'+libelle+'</button>';
+      return '<button type="button" class="btn'+(principal?' btn-primary':'')+'" data-action="envoyer-mail-groupe-mission" data-id="'+escapeHtml(m.id)+'" data-cible="'+cible+'" data-type="'+type+'"'+(nb?'':' disabled')+'>'+libelle+'</button>';
     }
     function bloc(titre, nb, boutons){
       return '<div style="border:1px solid var(--line,#ddd);border-radius:10px;padding:10px 12px;margin-bottom:10px;">'
@@ -4085,7 +4126,7 @@
 
     var trs = rows.map(function(h){
       var coche = !!historiqueSelection[h.id];
-      return '<tr><td class="col-select"><input type="checkbox" data-action="toggle-select-historique" data-id="'+h.id+'" '+(coche?"checked":"")+'></td>'
+      return '<tr><td class="col-select"><input type="checkbox" data-action="toggle-select-historique" data-id="'+escapeHtml(h.id)+'" '+(coche?"checked":"")+'></td>'
         + '<td>'+fmtDateTime(h.date)+'</td><td>'+escapeHtml(ACTION_LABELS[h.action]||h.action)+'</td>'
         + '<td>'+escapeHtml(h.cible||"")+'</td><td>'+escapeHtml(h.parNom||"")+' ('+libelleRoleHistorique(h.parRole)+')</td></tr>';
     }).join("");
@@ -4246,9 +4287,9 @@
       var membresHtml = membres.length
         ? '<div class="inscrits-list">' + membres.map(function(b){
             var retirerMembreHtml = role === "directeur"
-              ? '<button type="button" class="btn-danger-ghost" data-action="retirer-benevole-groupe" data-groupe="'+escapeHtml(g)+'" data-id="'+b.id+'" title="Retirer '+escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+' de ce groupe">✕</button>'
+              ? '<button type="button" class="btn-danger-ghost" data-action="retirer-benevole-groupe" data-groupe="'+escapeHtml(g)+'" data-id="'+escapeHtml(b.id)+'" title="Retirer '+escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+' de ce groupe">✕</button>'
               : '';
-            return '<div class="inscrit-row"><div class="inscrit-name inscrit-name-clic" data-action="open-benevole-modale" data-id="'+b.id+'" title="Voir la fiche de '+escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+'"><span class="avatar">'+initiales(b)+'</span>'
+            return '<div class="inscrit-row"><div class="inscrit-name inscrit-name-clic" data-action="open-benevole-modale" data-id="'+escapeHtml(b.id)+'" title="Voir la fiche de '+escapeHtml(b.prenom)+' '+escapeHtml(b.nom)+'"><span class="avatar">'+initiales(b)+'</span>'
               + escapeHtml(b.prenom)+' '+escapeHtml(b.nom) + (b.actif ? '' : ' <span class="benevole-contact">(inactif)</span>') + '</div>'
               + retirerMembreHtml + '</div>';
           }).join("") + '</div>'
@@ -4270,7 +4311,7 @@
           });
         ajoutHtml = disponibles.length
           ? '<div class="inscrire-row"><select id="'+idSelectAjout+'">'
-            + disponibles.map(function(b){ return '<option value="'+b.id+'">'+escapeHtml(b.nom)+' '+escapeHtml(b.prenom)+(b.actif?'':' (inactif)')+'</option>'; }).join("")
+            + disponibles.map(function(b){ return '<option value="'+escapeHtml(b.id)+'">'+escapeHtml(b.nom)+' '+escapeHtml(b.prenom)+(b.actif?'':' (inactif)')+'</option>'; }).join("")
             + '</select><button type="button" class="btn btn-sm" data-action="ajouter-benevole-groupe" data-groupe="'+escapeHtml(g)+'" data-select="'+idSelectAjout+'">+ Ajouter</button></div>'
           : '<div class="benevole-contact">Tous les bénévoles sont déjà dans ce groupe.</div>';
       }
@@ -4354,9 +4395,9 @@
       var pillCls = "role-pill" + (g.role==="directeur" ? " directeur" : "");
       var actionsHtml = "";
       if(role === "directeur"){
-        actionsHtml += '<button class="btn btn-ghost btn-sm" data-action="open-edit-gestionnaire" data-id="'+g.id+'">Modifier</button>';
+        actionsHtml += '<button class="btn btn-ghost btn-sm" data-action="open-edit-gestionnaire" data-id="'+escapeHtml(g.id)+'">Modifier</button>';
         if(g.role !== "directeur"){
-          actionsHtml += '<button class="btn btn-ghost btn-sm" data-action="toggle-gestionnaire" data-id="'+g.id+'">'+(g.actif ? "Désactiver" : "Réactiver")+'</button>';
+          actionsHtml += '<button class="btn btn-ghost btn-sm" data-action="toggle-gestionnaire" data-id="'+escapeHtml(g.id)+'">'+(g.actif ? "Désactiver" : "Réactiver")+'</button>';
         }
       }
       // Secteurs affichés à titre d'information (voir commentaire du
@@ -4453,6 +4494,7 @@
       intro: "Tout ce que peut faire un Gestionnaire (ci-dessous), plus :",
       droits: [
         "Modifier ou supprimer une mission existante",
+        "Ajouter un inscrit sur une mission passée, même complète (la case « Réalisée » reste à cocher à la main)",
         "Ajouter un compte Gestionnaire ou Directeur, le désactiver ou le réactiver",
         "Créer ou retirer un Groupe, y ajouter ou retirer un bénévole",
         "Modifier les Secteurs et Statuts de mission (onglet Paramètres)",
@@ -5279,7 +5321,10 @@
       var missionPourInscrire = missionById(missionId);
       var ajoutTardif = missionEstPassee(missionPourInscrire);
       if(ajoutTardif && role !== "directeur") return;
-      var sel = document.getElementById("sel-"+missionId);
+      // C15 (14/11/2026) : la liste placée à côté du bouton cliqué (la carte
+      // et la fenêtre de la mission ont chacune une liste "sel-<id>").
+      var rangeeInscrire = el.closest(".inscrire-row");
+      var sel = (rangeeInscrire && rangeeInscrire.querySelector("select")) || document.getElementById("sel-"+missionId);
       if(sel && sel.value){
         var benevoleInscrit = benevoleById(sel.value);
         addDoc(collection(db,"affectations"), {missionId:missionId, benevoleId:sel.value, statut:"inscrit", affichage: benevoleInscrit ? libelleInscrit(benevoleInscrit) : ""}).then(function(){
@@ -5409,8 +5454,8 @@
     else if(action==="alerter-tous-benevoles"){
       // Bouton "Écrire à tous les bénévoles inscrits" (onglet Groupes,
       // 29/09/2026, demande de Jluc) : ouvre la fenêtre liste copiable,
-      // même principe que "alerter-benevoles-mission" ci-dessus mais sans
-      // mission associée.
+      // même fenêtre liste copiable que pour une mission, mais sans mission
+      // associée.
       alerteTousBenevolesOuverte = true;
       alerteTousBenevolesCopieOk = false;
       renderModal();
@@ -5557,6 +5602,7 @@
         benevoles: state.benevoles,
         missions: state.missions,
         affectations: state.affectations,
+        candidatures: state.candidatures, // C17 (14/11/2026)
         gestionnaires: state.gestionnaires.map(function(g){ return {prenom:g.prenom||"", nom:g.nom, role:g.role, actif:g.actif, poles:g.poles||[]}; }),
         historique: state.historique
       };
@@ -5828,6 +5874,7 @@
       } else if(statKey === "averifier"){
         resetFiltresMissions();
         missionsFiltreStatut = "À vérifier";
+        missionsVue = "tableau"; // C19 : le filtre ne s'applique qu'au tableau
         switchTab("missions");
       } else if(statKey === "candidatures"){
         resetFiltresCandidatures();
@@ -6115,6 +6162,8 @@
       // Secteurs (29/09/2026) : mêmes cases à cocher "pole" que sur le
       // formulaire de création, lues de la même façon que pour un bénévole.
       var polesEdit = Array.prototype.slice.call(fge.querySelectorAll('input[name="pole"]:checked')).map(function(cb){ return cb.value; });
+      var compteAvant = state.gestionnaires.find(function(g){ return g.id === idEdit; }) || {};
+      polesEdit = conserverValeursNonProposees(polesEdit, compteAvant.poles, state.poles);
       updateDoc(doc(db,"gestionnaires", idEdit), {prenom: prenomEdit, nom: nomEdit, poles: polesEdit}).then(function(){
         if(idEdit === moiUid){ moiNom = (prenomEdit+' '+nomEdit).trim(); }
         logHistorique("modification_gestionnaire", (prenomEdit+' '+nomEdit).trim());
@@ -6274,6 +6323,15 @@
       var groupesSaisis = Array.prototype.slice.call(f.querySelectorAll('input[name="groupe"]:checked')).map(function(i){ return i.value; });
       var benPrenom = f.prenom.value.trim();
       var benNom = f.nom.value.trim();
+      // C20 (14/11/2026) : l'écriture sans fusion écrasait une fiche
+      // existante (les règles autorisent la modification à un Gestionnaire,
+      // donc le message « déjà enregistrée » ne s'affichait jamais).
+      var ficheExistanteAjout = benevoleById(emailId);
+      if(ficheExistanteAjout){
+        benevoleError = "Une fiche existe déjà avec cet email : " + ((ficheExistanteAjout.prenom||"") + " " + (ficheExistanteAjout.nom||"")).trim() + ". Modifiez-la depuis la liste des bénévoles.";
+        renderBenevoles();
+        return;
+      }
       setDoc(doc(db,"benevoles", emailId), {
         prenom: benPrenom,
         nom: benNom,
@@ -6298,6 +6356,9 @@
       var fbm = e.target;
       var polesModale = Array.prototype.slice.call(fbm.querySelectorAll('input[name="pole"]:checked')).map(function(i){ return i.value; });
       var groupesModale = Array.prototype.slice.call(fbm.querySelectorAll('input[name="groupe"]:checked')).map(function(i){ return i.value; });
+      var ficheAvant = benevoleById(benevoleModaleId) || {};
+      polesModale = conserverValeursNonProposees(polesModale, ficheAvant.poles, state.poles);
+      groupesModale = conserverValeursNonProposees(groupesModale, ficheAvant.groupes, groupesPourFichesBenevoles());
       var champsBenevole = {
         prenom: fbm.prenom.value.trim(),
         nom: fbm.nom.value.trim(),
@@ -6373,6 +6434,10 @@
       // Groupes (A6) : liste vide = mission visible par tous, comme avant.
       // Calculé AVANT placesSaisies ci-dessous, car sert à son défaut.
       var groupesMission = Array.prototype.slice.call(f2.querySelectorAll('input[name="groupe"]:checked')).map(function(i){ return i.value; });
+      if(missionEnEdition){
+        var missionAvantGroupes = missionById(missionEnEdition) || {};
+        groupesMission = conserverValeursNonProposees(groupesMission, missionAvantGroupes.groupes, state.groupes);
+      }
       // Places proposées : facultatif pour une mission à Groupes (second
       // complément A6, 23/09/2026). Si le champ est laissé vide ET qu'un ou
       // plusieurs Groupes sont cochés, on retient le nombre de bénévoles
@@ -6508,6 +6573,19 @@
     }
   });
 
+  // C17 (14/11/2026) : une date Firestore exportée revient du fichier JSON
+  // sous la forme {seconds, nanoseconds} ; on la retransforme en vraie date
+  // avant de l'écrire (sinon « Mission créée le » restait vide).
+  function restaurerDates(obj){
+    var copie = Object.assign({}, obj);
+    Object.keys(copie).forEach(function(k){
+      var v = copie[k];
+      if(v && typeof v === "object" && typeof v.seconds === "number" && typeof v.nanoseconds === "number"){
+        copie[k] = new Date(v.seconds * 1000 + Math.floor(v.nanoseconds / 1e6));
+      }
+    });
+    return copie;
+  }
   function importerDonnees(data){
     var nbPolesAjoutes = 0;
     var premierLot = [];
@@ -6533,13 +6611,13 @@
     }
     (data.benevoles||[]).forEach(function(b){
       if(!b || !b.id) return;
-      var copie = Object.assign({}, b);
+      var copie = restaurerDates(b);
       delete copie.id;
       premierLot.push(setDoc(doc(db,"benevoles", b.id), copie));
     });
     (data.missions||[]).forEach(function(m){
       if(!m || !m.id) return;
-      var copie = Object.assign({}, m);
+      var copie = restaurerDates(m);
       delete copie.id;
       premierLot.push(setDoc(doc(db,"missions", m.id), copie));
     });
@@ -6552,9 +6630,18 @@
     // et l'import des inscriptions pourrait échouer par pur hasard.
     Promise.all(premierLot).then(function(){
       var lotAffectations = (data.affectations||[]).filter(function(a){ return a && a.id; }).map(function(a){
-        var copie = Object.assign({}, a);
+        var copie = restaurerDates(a);
         delete copie.id;
         return setDoc(doc(db,"affectations", a.id), copie);
+      });
+      // C17 : candidatures du fichier absentes de la base, recréées (une
+      // candidature existante n'est jamais réécrite : les règles ne
+      // permettent que de la créer ou de la supprimer).
+      var idsCandidatures = state.candidatures.map(function(c){ return c.id; });
+      (data.candidatures||[]).filter(function(c){ return c && c.id && idsCandidatures.indexOf(c.id) < 0; }).forEach(function(c){
+        var copieC = restaurerDates(c);
+        delete copieC.id;
+        lotAffectations.push(setDoc(doc(db,"candidatures", c.id), copieC));
       });
       return Promise.all(lotAffectations);
     }).then(function(){
